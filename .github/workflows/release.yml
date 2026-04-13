@@ -1,0 +1,37 @@
+# À copier dans le dépôt public orion-the-wp-agent-connector sous :
+# .github/workflows/release.yml
+#
+# Déclenché sur tag poussé (ex. v1.0.4). Le zip contient les fichiers du plugin à la racine du dépôt.
+
+name: Release plugin zip
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build zip (fichiers plugin à la racine du dépôt)
+        run: |
+          zip -r "orion-the-wp-agent-connector.zip" . \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x "*.zip" \
+            -x "*__MACOSX*"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: orion-the-wp-agent-connector.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
