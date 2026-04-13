@@ -15,6 +15,12 @@ class OrionWPAgent_API
             'permission_callback' => array('OrionWPAgent_Auth', 'verify_token'),
         ));
 
+        register_rest_route(self::NS, '/version', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array($this, 'handle_version'),
+            'permission_callback' => array('OrionWPAgent_Auth', 'verify_token'),
+        ));
+
         register_rest_route(self::NS, '/posts', array(
             array(
                 'methods' => WP_REST_Server::READABLE,
@@ -243,6 +249,15 @@ class OrionWPAgent_API
     public function handle_ping($request)
     {
         return rest_ensure_response(OrionWPAgent_Actions::ping());
+    }
+
+    /**
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function handle_version($request)
+    {
+        return new WP_REST_Response(array('version' => ORION_WPAGENT_VERSION), 200);
     }
 
     /**
