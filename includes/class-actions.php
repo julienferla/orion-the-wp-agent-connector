@@ -52,6 +52,105 @@ class OrionWPAgent_Actions
     }
 
     /**
+     * Variantes de la chaîne search pour le matching (trim, entités HTML, slashes).
+     *
+     * @param string $raw
+     * @return array<int, string>
+     */
+    private static function patch_search_candidates($raw)
+    {
+        $candidates = array();
+        $t = trim((string) $raw);
+        if ($t !== '') {
+            $candidates[] = $t;
+        }
+        $dec = html_entity_decode($t, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ($dec !== '' && !in_array($dec, $candidates, true)) {
+            $candidates[] = $dec;
+        }
+        $sl = stripslashes($t);
+        if ($sl !== '' && !in_array($sl, $candidates, true)) {
+            $candidates[] = $sl;
+        }
+        $sldec = stripslashes($dec);
+        if ($sldec !== '' && !in_array($sldec, $candidates, true)) {
+            $candidates[] = $sldec;
+        }
+        return $candidates;
+    }
+
+    /**
+     * Trouve la première variante de search présente dans le contenu.
+     *
+     * @param string $content
+     * @param string $raw_search
+     * @return array{0:string,1:int}|null [needle, nombre d’occurrences]
+     */
+    private static function resolve_patch_needle($content, $raw_search)
+    {
+        foreach (self::patch_search_candidates($raw_search) as $needle) {
+            if ($needle === '') {
+                continue;
+            }
+            if (strpos($content, $needle) !== false) {
+                return array($needle, substr_count($content, $needle));
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Indice pour l’agent : extrait du contenu (texte) autour d’un mot-clé déduit de search.
+     *
+     * @param string $content post_content
+     * @param string $raw_search
+     * @return string
+     */
+    private static function patch_not_found_content_hint($content, $raw_search)
+    {
+        $plain = wp_strip_all_tags($content);
+        $t = trim((string) $raw_search);
+        $keyword = '';
+        if (preg_match('/\S+/u', $t, $m)) {
+            $keyword = $m[0];
+        }
+        if (mb_strlen($keyword, 'UTF-8') < 3) {
+            $keyword = mb_substr($t, 0, 20, 'UTF-8');
+        }
+        if ($keyword === '') {
+            return '';
+        }
+        $pos = stripos($plain, $keyword);
+        if ($pos === false) {
+            return sprintf(
+                'Mot-clé « %s » introuvable dans le contenu (texte seul).',
+                $keyword
+            );
+        }
+        $radius = 140;
+        $start = max(0, $pos - $radius);
+        $plain_len = mb_strlen($plain, 'UTF-8');
+        $kw_len = mb_strlen($keyword, 'UTF-8');
+        $len = min($plain_len - $start, $radius * 2 + $kw_len);
+        if ($len < 1) {
+            return '';
+        }
+        $snippet = mb_substr($plain, $start, $len, 'UTF-8');
+        if ($snippet === '') {
+            return '';
+        }
+        $snippet = preg_replace('/\s+/u', ' ', $snippet);
+        if (!is_string($snippet)) {
+            $snippet = '';
+        }
+        return sprintf(
+            'Extrait possible (texte seul autour de « %s ») : …%s…',
+            $keyword,
+            $snippet
+        );
+    }
+
+    /**
      * @param int $post_id
      * @return array<int, array<string, mixed>>
      */
@@ -165,54 +264,70 @@ class OrionWPAgent_Actions
     }
 
     /**
-     * Remplacement en masse dans post_content des articles trouvés par WP_Query (paramètre s).
-     * Ne met à jour que les posts dont le corps contient la sous-chaîne search (str_replace).
+     * Remplacement en masse dans post_content via SQL (LIKE + str_replace par ligne).
      *
-     * @param array<string, mixed> $params search, replace (optionnel), max_posts (optionnel, défaut 200, max 500)
+     * @param array<string, mixed> $params search, replace, post_type ('post'|'page'|'all'), max_posts (optionnel, défaut 200, max 500)
      * @return array<string, mixed>|WP_Error
      */
     public static function bulk_patch_content($params)
     {
+        global $wpdb;
+
         $search = isset($params['search']) ? (string) $params['search'] : '';
-        if ($search === '') {
+        if (trim($search) === '') {
             return new WP_Error('orion_invalid', 'search ne peut pas être vide', array('status' => 400));
         }
         $replace = isset($params['replace']) ? (string) $params['replace'] : '';
+        $post_type = isset($params['post_type']) ? (string) $params['post_type'] : 'post';
+        if (!in_array($post_type, array('post', 'page', 'all'), true)) {
+            return new WP_Error('orion_invalid', 'post_type doit être post, page ou all', array('status' => 400));
+        }
         $max_posts = isset($params['max_posts']) ? (int) $params['max_posts'] : 200;
         $max_posts = max(1, min(500, $max_posts));
 
-        $q = new WP_Query(array(
-            'post_type' => 'post',
-            'post_status' => array('publish', 'draft', 'pending', 'private'),
-            's' => $search,
-            'posts_per_page' => $max_posts,
-            'orderby' => 'relevance',
-            'no_found_rows' => true,
-        ));
+        if ($post_type === 'post') {
+            $type_sql = "post_type = 'post'";
+        } elseif ($post_type === 'page') {
+            $type_sql = "post_type = 'page'";
+        } else {
+            $type_sql = "post_type IN ('post','page')";
+        }
+
+        $like = '%' . $wpdb->esc_like($search) . '%';
+        $sql = "SELECT ID, post_content FROM {$wpdb->posts}
+            WHERE post_status = 'publish'
+            AND ({$type_sql})
+            AND post_content LIKE %s
+            LIMIT %d";
+        $prepared = $wpdb->prepare($sql, $like, $max_posts);
+        $rows = $wpdb->get_results($prepared);
+        if (!is_array($rows)) {
+            return new WP_Error('orion_db', 'Requête bulk impossible', array('status' => 500));
+        }
 
         $posts_modified = array();
-        foreach ($q->posts as $p) {
-            if (!$p instanceof WP_Post) {
+        foreach ($rows as $row) {
+            if (!is_object($row) || !isset($row->ID, $row->post_content)) {
                 continue;
             }
-            $post_id = (int) $p->ID;
-            $post = get_post($post_id);
-            if (!$post instanceof WP_Post || $post->post_type !== 'post') {
-                continue;
-            }
-            $content = $post->post_content;
-            if (strpos($content, $search) === false) {
+            $post_id = (int) $row->ID;
+            $content = (string) $row->post_content;
+            $new_content = str_replace($search, $replace, $content);
+            if ($new_content === $content) {
                 continue;
             }
             self::backup_post_content_before_write($post_id, $content);
-            $new_content = str_replace($search, $replace, $content);
-            $res = wp_update_post(array(
-                'ID' => $post_id,
-                'post_content' => wp_slash($new_content),
-            ), true);
-            if (is_wp_error($res)) {
-                return $res;
+            $updated = $wpdb->update(
+                $wpdb->posts,
+                array('post_content' => wp_slash($new_content)),
+                array('ID' => $post_id),
+                array('%s'),
+                array('%d')
+            );
+            if ($updated === false) {
+                return new WP_Error('orion_db', 'Échec mise à jour post ID ' . $post_id, array('status' => 500));
             }
+            clean_post_cache($post_id);
             $posts_modified[] = $post_id;
         }
 
@@ -328,17 +443,24 @@ class OrionWPAgent_Actions
         }
 
         $content = $post->post_content;
-        if (strpos($content, $search) === false) {
+        $resolved = self::resolve_patch_needle($content, $search);
+        if ($resolved === null) {
+            $hint = self::patch_not_found_content_hint($content, $search);
+            $msg = 'La chaîne search est introuvable dans le contenu de l’article.';
+            if ($hint !== '') {
+                $msg .= ' ' . $hint;
+            }
             return new WP_Error(
                 'orion_not_found',
-                'La chaîne search est introuvable dans le contenu de l’article',
-                array('status' => 400)
+                $msg,
+                array('status' => 400, 'hint' => $hint)
             );
         }
 
+        list($needle, $replacements_count) = $resolved;
+
         self::backup_post_content_before_write($post_id, $content);
-        $replacements_count = substr_count($content, $search);
-        $new_content = str_replace($search, $replace, $content);
+        $new_content = str_replace($needle, $replace, $content);
 
         $res = wp_update_post(array(
             'ID' => $post_id,
@@ -382,17 +504,24 @@ class OrionWPAgent_Actions
         }
 
         $content = $post->post_content;
-        if (strpos($content, $search) === false) {
+        $resolved = self::resolve_patch_needle($content, $search);
+        if ($resolved === null) {
+            $hint = self::patch_not_found_content_hint($content, $search);
+            $msg = 'La chaîne search est introuvable dans le contenu de la page.';
+            if ($hint !== '') {
+                $msg .= ' ' . $hint;
+            }
             return new WP_Error(
                 'orion_not_found',
-                'La chaîne search est introuvable dans le contenu de la page',
-                array('status' => 400)
+                $msg,
+                array('status' => 400, 'hint' => $hint)
             );
         }
 
+        list($needle, $replacements_count) = $resolved;
+
         self::backup_post_content_before_write($page_id, $content);
-        $replacements_count = substr_count($content, $search);
-        $new_content = str_replace($search, $replace, $content);
+        $new_content = str_replace($needle, $replace, $content);
 
         $res = wp_update_post(array(
             'ID' => $page_id,

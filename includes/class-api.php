@@ -306,7 +306,7 @@ class OrionWPAgent_API
     }
 
     /**
-     * POST JSON { "search": "…", "replace": "…", "max_posts": 200 } — remplacement en masse (articles).
+     * POST JSON { "search": "…", "replace": "…", "post_type": "post"|"page"|"all", "max_posts": 200 } — remplacement en masse (SQL LIKE sur post_content publié).
      *
      * @param WP_REST_Request $request
      * @return WP_REST_Response|WP_Error
@@ -320,6 +320,7 @@ class OrionWPAgent_API
         $params = array(
             'search' => isset($body['search']) ? (string) $body['search'] : '',
             'replace' => isset($body['replace']) ? (string) $body['replace'] : '',
+            'post_type' => isset($body['post_type']) ? (string) $body['post_type'] : 'post',
             'max_posts' => isset($body['max_posts']) ? (int) $body['max_posts'] : 200,
         );
         $data = OrionWPAgent_Actions::bulk_patch_content($params);

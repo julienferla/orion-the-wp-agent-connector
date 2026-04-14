@@ -4,7 +4,7 @@ Tags: rest-api, automation, ai
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.0.8
+Stable tag: 1.0.9
 License: GPLv2 or later
 
 Expose une API REST sécurisée pour que le SaaS Orion The WP Agent pilote votre site (articles, pages, médias).
@@ -20,6 +20,9 @@ Après activation, un jeton est généré automatiquement. Copiez-le depuis Rég
 3. Récupérez le jeton et l’URL sur la page de réglages du plugin.
 
 == Changelog ==
+
+= 1.0.9 =
+* bulk_patch_content : paramètre post_type (post | page | all), sélection SQL sur contenus publiés ; patch article/page plus tolérant (normalisation search + indice contextuel si introuvable).
 
 = 1.0.8 =
 * Réglages : une seule page « Orion The WP Agent » avec onglets (Connexion, À propos, Debug) ; suppression des entrées de menu séparées.
