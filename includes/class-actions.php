@@ -109,7 +109,8 @@ class OrionWPAgent_Actions
     }
 
     /**
-     * Indice pour l’agent : extrait du contenu (texte) autour d’un mot-clé déduit de search.
+     * Indice pour l’agent : extrait du post_content brut (DB) autour d’un mot-clé déduit de search.
+     * Le snippet inclut shortcodes, &nbsp;, entités — pas le texte « visible » seul.
      *
      * @param string $content post_content
      * @param string $raw_search
@@ -117,43 +118,87 @@ class OrionWPAgent_Actions
      */
     private static function patch_not_found_content_hint($content, $raw_search)
     {
-        $plain = wp_strip_all_tags($content);
+        $content = (string) $content;
         $t = trim(wp_strip_all_tags((string) $raw_search));
         $keyword = '';
         if (preg_match('/\S+/u', $t, $m)) {
             $keyword = $m[0];
         }
-        if (mb_strlen($keyword, 'UTF-8') < 3) {
+        if (function_exists('mb_strlen') && mb_strlen($keyword, 'UTF-8') < 3) {
             $keyword = mb_substr($t, 0, 20, 'UTF-8');
+        } elseif (!function_exists('mb_strlen') && strlen($keyword) < 3) {
+            $keyword = substr($t, 0, 20);
         }
         if ($keyword === '') {
             return '';
         }
-        $pos = stripos($plain, $keyword);
+
+        $pos = false;
+        if (function_exists('mb_stripos')) {
+            $pos = mb_stripos($content, $keyword, 0, 'UTF-8');
+        } else {
+            $pos = stripos($content, $keyword);
+        }
+
+        if ($pos === false && preg_match_all('/\S+/u', $t, $tm) && !empty($tm[0])) {
+            foreach ($tm[0] as $tok) {
+                if ($tok === $keyword) {
+                    continue;
+                }
+                $tok_len = function_exists('mb_strlen') ? mb_strlen($tok, 'UTF-8') : strlen($tok);
+                if ($tok_len < 3) {
+                    continue;
+                }
+                $try = function_exists('mb_stripos')
+                    ? mb_stripos($content, $tok, 0, 'UTF-8')
+                    : stripos($content, $tok);
+                if ($try !== false) {
+                    $pos = $try;
+                    $keyword = $tok;
+                    break;
+                }
+            }
+        }
+
         if ($pos === false) {
+            $preview = function_exists('mb_substr')
+                ? mb_substr($content, 0, 500, 'UTF-8')
+                : substr($content, 0, 500);
+            if ($preview !== '') {
+                return sprintf(
+                    /* translators: %s: first 500 chars of raw post_content */
+                    'Aucun mot-clé issu de search trouvé dans post_content brut ; début du contenu (500 car. max) : …%s…',
+                    $preview
+                );
+            }
+
             return sprintf(
-                'Mot-clé « %s » introuvable dans le contenu (texte seul).',
+                /* translators: %s: keyword tried */
+                'Mot-clé issu de search introuvable dans post_content brut (mot essayé : « %s »).',
                 $keyword
             );
         }
-        $radius = 140;
-        $start = max(0, $pos - $radius);
-        $plain_len = mb_strlen($plain, 'UTF-8');
-        $kw_len = mb_strlen($keyword, 'UTF-8');
-        $len = min($plain_len - $start, $radius * 2 + $kw_len);
-        if ($len < 1) {
+
+        $total = 500;
+        $content_len = function_exists('mb_strlen')
+            ? mb_strlen($content, 'UTF-8')
+            : strlen($content);
+        $half = (int) floor($total / 2);
+        $start = max(0, $pos - $half);
+        if ($start + $total > $content_len) {
+            $start = max(0, $content_len - $total);
+        }
+        $snippet = function_exists('mb_substr')
+            ? mb_substr($content, $start, $total, 'UTF-8')
+            : substr($content, $start, $total);
+        if (!is_string($snippet) || $snippet === '') {
             return '';
         }
-        $snippet = mb_substr($plain, $start, $len, 'UTF-8');
-        if ($snippet === '') {
-            return '';
-        }
-        $snippet = preg_replace('/\s+/u', ' ', $snippet);
-        if (!is_string($snippet)) {
-            $snippet = '';
-        }
+
         return sprintf(
-            'Extrait possible (texte seul autour de « %s ») : …%s…',
+            /* translators: 1: char count, 2: anchor keyword, 3: raw excerpt */
+            'Extrait brut post_content (%1$d car. autour de « %2$s ») — utiliser une sous-chaîne EXACTE de cet extrait comme search (y compris &nbsp;, shortcodes, entités) : …%3$s…',
+            $total,
             $keyword,
             $snippet
         );

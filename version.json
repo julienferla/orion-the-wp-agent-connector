@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "update_manifest_url": "https://raw.githubusercontent.com/julienferla/orion-the-wp-agent-connector/main/version.json",
   "download_url": "https://github.com/julienferla/orion-the-wp-agent-connector/releases/latest/download/orion-the-wp-agent-connector.zip",
   "package": "https://github.com/julienferla/orion-the-wp-agent-connector/releases/latest/download/orion-the-wp-agent-connector.zip"
