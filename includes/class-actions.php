@@ -165,6 +165,65 @@ class OrionWPAgent_Actions
     }
 
     /**
+     * Remplacement en masse dans post_content des articles trouvés par WP_Query (paramètre s).
+     * Ne met à jour que les posts dont le corps contient la sous-chaîne search (str_replace).
+     *
+     * @param array<string, mixed> $params search, replace (optionnel), max_posts (optionnel, défaut 200, max 500)
+     * @return array<string, mixed>|WP_Error
+     */
+    public static function bulk_patch_content($params)
+    {
+        $search = isset($params['search']) ? (string) $params['search'] : '';
+        if ($search === '') {
+            return new WP_Error('orion_invalid', 'search ne peut pas être vide', array('status' => 400));
+        }
+        $replace = isset($params['replace']) ? (string) $params['replace'] : '';
+        $max_posts = isset($params['max_posts']) ? (int) $params['max_posts'] : 200;
+        $max_posts = max(1, min(500, $max_posts));
+
+        $q = new WP_Query(array(
+            'post_type' => 'post',
+            'post_status' => array('publish', 'draft', 'pending', 'private'),
+            's' => $search,
+            'posts_per_page' => $max_posts,
+            'orderby' => 'relevance',
+            'no_found_rows' => true,
+        ));
+
+        $posts_modified = array();
+        foreach ($q->posts as $p) {
+            if (!$p instanceof WP_Post) {
+                continue;
+            }
+            $post_id = (int) $p->ID;
+            $post = get_post($post_id);
+            if (!$post instanceof WP_Post || $post->post_type !== 'post') {
+                continue;
+            }
+            $content = $post->post_content;
+            if (strpos($content, $search) === false) {
+                continue;
+            }
+            self::backup_post_content_before_write($post_id, $content);
+            $new_content = str_replace($search, $replace, $content);
+            $res = wp_update_post(array(
+                'ID' => $post_id,
+                'post_content' => wp_slash($new_content),
+            ), true);
+            if (is_wp_error($res)) {
+                return $res;
+            }
+            $posts_modified[] = $post_id;
+        }
+
+        return array(
+            'success' => true,
+            'modified_count' => count($posts_modified),
+            'posts_modified' => $posts_modified,
+        );
+    }
+
+    /**
      * Résout une URL vers un contenu publié (page, article, CPT public) via url_to_postid.
      *
      * @param array<string, mixed> $params

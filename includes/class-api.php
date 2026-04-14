@@ -40,6 +40,12 @@ class OrionWPAgent_API
             'permission_callback' => array('OrionWPAgent_Auth', 'verify_token'),
         ));
 
+        register_rest_route(self::NS, '/posts/bulk-patch-content', array(
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => array($this, 'handle_bulk_patch_content'),
+            'permission_callback' => array('OrionWPAgent_Auth', 'verify_token'),
+        ));
+
         register_rest_route(self::NS, '/posts/by-url', array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => array($this, 'handle_get_post_by_url'),
@@ -293,6 +299,30 @@ class OrionWPAgent_API
             'search' => $request->get_param('search'),
         );
         $data = OrionWPAgent_Actions::search_posts($params);
+        if (is_wp_error($data)) {
+            return $data;
+        }
+        return rest_ensure_response($data);
+    }
+
+    /**
+     * POST JSON { "search": "…", "replace": "…", "max_posts": 200 } — remplacement en masse (articles).
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function handle_bulk_patch_content($request)
+    {
+        $body = $request->get_json_params();
+        if (!is_array($body)) {
+            $body = array();
+        }
+        $params = array(
+            'search' => isset($body['search']) ? (string) $body['search'] : '',
+            'replace' => isset($body['replace']) ? (string) $body['replace'] : '',
+            'max_posts' => isset($body['max_posts']) ? (int) $body['max_posts'] : 200,
+        );
+        $data = OrionWPAgent_Actions::bulk_patch_content($params);
         if (is_wp_error($data)) {
             return $data;
         }
