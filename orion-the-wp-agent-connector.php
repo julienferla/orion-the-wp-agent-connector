@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Orion The WP Agent Connector
  * Description: Connecte votre site WordPress à Orion The WP Agent.
- * Version: 1.0.5
+ * Version: 1.0.6
  * Author: Orion The WP Agent
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -29,7 +29,7 @@ if (!function_exists('orion_wpagent_read_version')) {
                 return $data['version'];
             }
         }
-        return '1.0.5';
+        return '1.0.6';
     }
 }
 

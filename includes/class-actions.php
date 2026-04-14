@@ -165,7 +165,7 @@ class OrionWPAgent_Actions
     }
 
     /**
-     * Résout une URL d’article vers un post (type post uniquement).
+     * Résout une URL vers un contenu publié (page, article, CPT public) via url_to_postid.
      *
      * @param array<string, mixed> $params
      * @return array<string, mixed>|WP_Error
@@ -177,21 +177,28 @@ class OrionWPAgent_Actions
             return new WP_Error('orion_invalid', 'url est requis', array('status' => 400));
         }
 
-        $id = url_to_postid($url);
-        if ($id <= 0) {
-            return new WP_Error('orion_not_found', 'Aucun article pour cette URL', array('status' => 404));
+        $post_id = (int) url_to_postid($url);
+        if ($post_id <= 0) {
+            return new WP_Error('orion_not_found', 'Page introuvable pour cette URL', array('status' => 404));
         }
 
-        $post = get_post($id);
-        if (!$post instanceof WP_Post || $post->post_type !== 'post') {
-            return new WP_Error('orion_not_found', 'Article introuvable', array('status' => 404));
+        $post = get_post($post_id);
+        if (!$post instanceof WP_Post) {
+            return new WP_Error('orion_not_found', 'Page introuvable pour cette URL', array('status' => 404));
+        }
+
+        $ptype = $post->post_type;
+        $pto = get_post_type_object($ptype);
+        if (!$pto instanceof WP_Post_Type || !$pto->public) {
+            return new WP_Error('orion_not_found', 'Page introuvable pour cette URL', array('status' => 404));
         }
 
         return array(
-            'id' => (int) $post->ID,
-            'title' => get_the_title($post),
-            'content' => $post->post_content,
-            'url' => (string) get_permalink($post),
+            'post_id' => $post_id,
+            'title' => (string) $post->post_title,
+            'url' => (string) get_permalink($post_id),
+            'type' => (string) $ptype,
+            'id' => $post_id,
         );
     }
 

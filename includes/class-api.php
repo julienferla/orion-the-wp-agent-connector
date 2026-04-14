@@ -46,6 +46,12 @@ class OrionWPAgent_API
             'permission_callback' => array('OrionWPAgent_Auth', 'verify_token'),
         ));
 
+        register_rest_route(self::NS, '/get-post-by-url', array(
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => array($this, 'handle_get_post_by_url_post'),
+            'permission_callback' => array('OrionWPAgent_Auth', 'verify_token'),
+        ));
+
         register_rest_route(self::NS, '/posts/(?P<id>\\d+)/content', array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => array($this, 'handle_get_post_content'),
@@ -301,6 +307,32 @@ class OrionWPAgent_API
     {
         $params = array(
             'url' => $request->get_param('url'),
+        );
+        $data = OrionWPAgent_Actions::get_post_by_url($params);
+        if (is_wp_error($data)) {
+            return $data;
+        }
+        return rest_ensure_response($data);
+    }
+
+    /**
+     * POST JSON { "url": "..." } — résolution URL → post_id (pages et articles).
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function handle_get_post_by_url_post($request)
+    {
+        $body = $request->get_json_params();
+        $url = '';
+        if (is_array($body) && isset($body['url'])) {
+            $url = $body['url'];
+        }
+        if ($url === '' || $url === null) {
+            $url = $request->get_param('url');
+        }
+        $params = array(
+            'url' => is_string($url) ? $url : '',
         );
         $data = OrionWPAgent_Actions::get_post_by_url($params);
         if (is_wp_error($data)) {
