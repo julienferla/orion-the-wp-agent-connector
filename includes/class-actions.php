@@ -52,7 +52,8 @@ class OrionWPAgent_Actions
     }
 
     /**
-     * Variantes de la chaîne search pour le matching (trim, entités HTML, slashes).
+     * Variantes de la chaîne search pour le matching (trim, texte sans balises, entités HTML, slashes).
+     * Le post_content Divi/Builder est souvent des shortcodes : le texte visible n’est pas du HTML rendu.
      *
      * @param string $raw
      * @return array<int, string>
@@ -60,22 +61,30 @@ class OrionWPAgent_Actions
     private static function patch_search_candidates($raw)
     {
         $candidates = array();
+        $push = static function ($s, &$candidates) {
+            $s = (string) $s;
+            if ($s === '' || in_array($s, $candidates, true)) {
+                return;
+            }
+            $candidates[] = $s;
+        };
+
         $t = trim((string) $raw);
-        if ($t !== '') {
-            $candidates[] = $t;
-        }
+        $push($t, $candidates);
+        $push(trim(wp_strip_all_tags($t)), $candidates);
+
         $dec = html_entity_decode($t, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        if ($dec !== '' && !in_array($dec, $candidates, true)) {
-            $candidates[] = $dec;
-        }
+        $push($dec, $candidates);
+        $push(trim(wp_strip_all_tags($dec)), $candidates);
+
         $sl = stripslashes($t);
-        if ($sl !== '' && !in_array($sl, $candidates, true)) {
-            $candidates[] = $sl;
-        }
+        $push($sl, $candidates);
+        $push(trim(wp_strip_all_tags($sl)), $candidates);
+
         $sldec = stripslashes($dec);
-        if ($sldec !== '' && !in_array($sldec, $candidates, true)) {
-            $candidates[] = $sldec;
-        }
+        $push($sldec, $candidates);
+        $push(trim(wp_strip_all_tags($sldec)), $candidates);
+
         return $candidates;
     }
 
@@ -109,7 +118,7 @@ class OrionWPAgent_Actions
     private static function patch_not_found_content_hint($content, $raw_search)
     {
         $plain = wp_strip_all_tags($content);
-        $t = trim((string) $raw_search);
+        $t = trim(wp_strip_all_tags((string) $raw_search));
         $keyword = '';
         if (preg_match('/\S+/u', $t, $m)) {
             $keyword = $m[0];
@@ -293,13 +302,30 @@ class OrionWPAgent_Actions
             $type_sql = "post_type IN ('post','page')";
         }
 
-        $like = '%' . $wpdb->esc_like($search) . '%';
+        $cands = array_values(
+            array_filter(
+                self::patch_search_candidates($search),
+                static function ($c) {
+                    return is_string($c) && $c !== '';
+                }
+            )
+        );
+        $cands = array_slice(array_unique($cands), 0, 8);
+        if ($cands === array()) {
+            return new WP_Error('orion_invalid', 'search ne peut pas être vide', array('status' => 400));
+        }
+        $like_parts = array_fill(0, count($cands), 'post_content LIKE %s');
+        $like_sql = '(' . implode(' OR ', $like_parts) . ')';
+        $like_values = array();
+        foreach ($cands as $c) {
+            $like_values[] = '%' . $wpdb->esc_like($c) . '%';
+        }
         $sql = "SELECT ID, post_content FROM {$wpdb->posts}
             WHERE post_status = 'publish'
             AND ({$type_sql})
-            AND post_content LIKE %s
+            AND {$like_sql}
             LIMIT %d";
-        $prepared = $wpdb->prepare($sql, $like, $max_posts);
+        $prepared = $wpdb->prepare($sql, array_merge($like_values, array($max_posts)));
         $rows = $wpdb->get_results($prepared);
         if (!is_array($rows)) {
             return new WP_Error('orion_db', 'Requête bulk impossible', array('status' => 500));
@@ -312,7 +338,12 @@ class OrionWPAgent_Actions
             }
             $post_id = (int) $row->ID;
             $content = (string) $row->post_content;
-            $new_content = str_replace($search, $replace, $content);
+            $resolved = self::resolve_patch_needle($content, $search);
+            if ($resolved === null) {
+                continue;
+            }
+            list($needle,) = $resolved;
+            $new_content = str_replace($needle, $replace, $content);
             if ($new_content === $content) {
                 continue;
             }

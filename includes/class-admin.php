@@ -284,6 +284,7 @@ class OrionWPAgent_Admin
             ?>
         </p>
         <ul class="ul-disc" style="max-width:640px">
+            <li><strong>1.1.0</strong> — <?php echo esc_html__('Patch / bulk_patch : candidats search incluant texte sans balises (shortcodes Divi) ; LIKE multi-candidats en bulk.', 'orion-the-wp-agent-connector'); ?></li>
             <li><strong>1.0.9</strong> — <?php echo esc_html__('bulk_patch_content (post_type post/page/all, SQL) ; patch search normalisé + indice si échec.', 'orion-the-wp-agent-connector'); ?></li>
             <li><strong>1.0.8</strong> — <?php echo esc_html__('Interface d’administration à onglets unique ; README GitHub.', 'orion-the-wp-agent-connector'); ?></li>
             <li><strong>1.0.7</strong> — <?php echo esc_html__('Mises à jour automatiques via manifeste JSON.', 'orion-the-wp-agent-connector'); ?></li>
