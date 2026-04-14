@@ -224,24 +224,24 @@ class OrionWPAgent_Actions
     }
 
     /**
-     * Contenu HTML complet d’une page.
+     * Contenu HTML brut d’une page (route GET /pages/{id}/content).
      *
-     * @param int $id
-     * @return array<string, mixed>|WP_Error
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
      */
-    public static function get_page_content($id)
+    public static function get_page_content($request)
     {
+        $id = (int) $request->get_param('id');
         $post = get_post($id);
         if (!$post instanceof WP_Post || $post->post_type !== 'page') {
-            return new WP_Error('orion_not_found', 'Page introuvable', array('status' => 404));
+            return new WP_REST_Response(array('error' => 'introuvable'), 404);
         }
 
-        return array(
-            'id' => (int) $post->ID,
-            'title' => get_the_title($post),
+        return new WP_REST_Response(array(
+            'id' => $id,
+            'title' => $post->post_title,
             'content' => $post->post_content,
-            'url' => (string) get_permalink($post),
-        );
+        ), 200);
     }
 
     /**

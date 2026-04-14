@@ -134,7 +134,7 @@ class OrionWPAgent_API
 
         register_rest_route(self::NS, '/pages/(?P<id>\\d+)/content', array(
             'methods' => WP_REST_Server::READABLE,
-            'callback' => array($this, 'handle_get_page_content'),
+            'callback' => array('OrionWPAgent_Actions', 'get_page_content'),
             'permission_callback' => array('OrionWPAgent_Auth', 'verify_token'),
         ));
 
@@ -392,20 +392,6 @@ class OrionWPAgent_API
             'backup_key' => isset($body['backup_key']) ? (string) $body['backup_key'] : '',
         );
         $data = OrionWPAgent_Actions::restore_post_backup($params);
-        if (is_wp_error($data)) {
-            return $data;
-        }
-        return rest_ensure_response($data);
-    }
-
-    /**
-     * @param WP_REST_Request $request
-     * @return WP_REST_Response|WP_Error
-     */
-    public function handle_get_page_content($request)
-    {
-        $id = (int) $request['id'];
-        $data = OrionWPAgent_Actions::get_page_content($id);
         if (is_wp_error($data)) {
             return $data;
         }
